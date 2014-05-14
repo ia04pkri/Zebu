@@ -1,0 +1,335 @@
+<html>
+<head>
+<style>
+  #alert { background:#ff4347; }
+  #warning { background:#ff6600; }
+  #notification { background:#72cc4e; } 
+  .alert-bck { background:#ffddde; }
+  .warning-bck { background:#ffe2c9; }
+  .notification-bck { background:#eeffec; }   
+  .head { padding:5px; margin:-5px; border-top-right-radius:4px; border-top-left-radius:4px; }                                                    
+  #msg { z-index:2147483647; box-shadow: 5px 5px 5px #888888; position:absolute; left:0px; right:0px; top:30%; margin:auto auto; padding:5px; width:150px; border:1px solid gray; border-radius:4px; display:none; }
+  #loader { z-index:2147483647; position:absolute; left:0px; right:0px; top:30%; margin:auto auto; display:none; }
+</style>                                                               
+<script src="jquery-1.10.2.min.js"></script>                          
+<script src="//cdnjs.cloudflare.com/ajax/libs/mustache.js/0.7.2/mustache.js"></script>
+<script>
+
+var Zebu = (function(){ 
+    var Helper = {    
+      Common: {
+          //parse string to another format by its value
+          Parse: function(str){
+              if(str.search(/^-?[0-9]+$/) == 0)
+                  return parseInt(str);
+              else if(str.search(/^-?[0-9]+\.[0-9]+$/) == 0)
+                  return parseFloat(str);
+              else if(str.toLowerCase() === ('true' || 'false'))
+                  return (str.toLowerCase() === 'true');
+    	        else
+    	            return str;
+          },
+          GET: function(name){
+              return decodeURIComponent((new RegExp('[?|&]' + name + '=' + '([^&;]+?)(&|#|;|$)').exec(location.search)||[,""])[1].replace(/\+/g, '%20'))||null;  
+          },
+          Rand: function(min, max){
+              return Math.random()*(max-min)+min;
+          },
+          ShuffleArray: function(arr){
+              var o = arr.slice();
+              for(var j, x, i = o.length; i; j = Math.floor(Math.random() * i), x = o[--i], o[i] = o[j], o[j] = x);
+              return o;
+          },
+          IsSupported: function(elementName){
+              if(typeof elementName !== 'undefined' && typeof elementName !== ''){       
+                  var result = false;   
+                  function test(el, prop){
+                      var element = document.createElement(el);       
+                      if(prop in element)
+                          return true;
+                      else
+                          return false;
+                  }
+                  
+                  switch(elementName){
+                      case 'canvas': result = (test(elementName, 'getContext')) ? true : false; break;     
+                      case 'audio': result = (test(elementName, 'play')) ? true : false; break;          
+                      case 'video': result = (test(elementName, 'play')) ? true : false; break;   
+                      default: return false;
+                  }                     
+                  
+                  return result;
+              }
+              else
+                  return false;
+          }
+      },
+      //parse value from client storages
+      Store: {
+          Session: {
+              Get: function(name){
+                  return Helper.Common.Parse(sessionStorage.getItem(name));
+              },
+              Set: function(name){
+                  sessionStorage.setItem(name);
+              }
+          },
+          Local: {
+              Get: function(name){
+                  return Helper.Common.Parse(localStorage.getItem(name));
+              },
+              Set: function(name){
+                  localStorage.setItem(name);
+              }
+          }
+      },  
+      //allow to disable and enable console.log outputs
+      Loger: {
+          AutoSetup: function(setup){
+              if(document.location.hostname != "localhost"){
+                  Helper.Loger.Disable();
+                  Helper.Loger.SavingErrLog(setup);
+              }
+          },
+          Enable: function(){
+              Helper.Loger.Log = function(str){
+                  console.log(str);
+              };
+          },
+          Disable: function(){
+              Helper.Loger.Log = function(){};
+          },
+          Log: function(str){
+              console.log(str);
+          },
+          SavingErrLog: function(setup){    
+              window.onerror = function(errorMessage, file, errorLine){
+                  var defaults = {
+                      phpURL: 'jserror.php',
+                      logURL: 'jserror.log',
+                      email: '',
+                      msg: errorMessage,
+                      url: file,
+                      line: errorLine
+                  }
+                  var setup = $.extend({}, defaults, setup); 
+                  
+                  jQuery.ajax({
+                      type: 'POST',
+                      url: setup.phpURL,
+                      data: setup,
+                      success: function() {
+                          console.log('JS error report successful.');
+                      },
+                      error: function() {
+                          console.error('JS error report submission failed!');
+                      }
+                  });       
+                                    
+                  return true;
+              }
+          }
+      },
+    
+      KeyDown: function(setup){             //literal object like this {elObj: $('input'), callBack: function(){}, filter: {'a': function(){}, 'b':function(){}}}
+        setup.elObj.keydown(function(e){
+            var key = String.fromCharCode( e.keyCode || e.which ).toLowerCase();
+            
+            if(key in setup.filter){
+                setup.filter[key]();
+                setup.callBack();
+            }
+            return false;
+        });
+      },
+      
+      KeyUp: function(setup){             //literal object like this {elObj: $('input'), callBack: function(){}, filter: {'a': function(){}, 'b':function(){}}}
+        setup.elObj.keyup(function(e){
+            var key = String.fromCharCode( e.keyCode || e.which ).toLowerCase();
+          
+            if(setup.callBack)
+                setup.callBack();  
+            if(key in setup.filter)
+                setup.filter[key]();
+            return false;
+        });
+      },
+      
+      KeyLongPress: function(setup){             //literal object like this {elObj: $('input'), callBack: function(){}, filter: {'a': function(){}, 'b':function(){}}}
+        var pressTimer;
+        var allowed = true;
+        
+        setup.elObj.keydown(function(e){
+            if(!allowed)
+                return false;   
+            pressTimer = window.setTimeout(function(){
+                var key = String.fromCharCode( e.keyCode || e.which ).toLowerCase();
+          
+                if(setup.callBack)
+                    setup.callBack();  
+                if(key in setup.filter)
+                    setup.filter[key]();
+            }, 1500);
+            allowed = false;
+            return false;
+        }).keyup(function(e){
+            clearTimeout(pressTimer);
+            allowed = true;
+            return false;
+        });
+      }
+    };
+    
+    return {
+        Log: Helper.Loger.Log,
+        KeyDown: Helper.KeyDown,
+        IsSupported: Helper.Common.IsSupported
+    }
+})()
+
+
+
+$(document).ready(function(){
+
+    //Zebu.Log("sss");
+    
+    Zebu.KeyDown({
+      elObj: $('body'), 
+      filter: {
+        "a": function(){
+          l.Log("jo")
+        },
+        "b": function(){
+          l.Log("rr")
+        }
+      }
+    });    
+                   
+    var PagesSwitcher = new (function(){
+        var self = this;
+        var callbcks = {};
+        init();
+        
+        function init(){
+          window.onpopstate = function(){      
+              if(history.state)
+              callbcks[history.state.url]();
+          }
+        }
+        
+        this.registrate = function(setup){
+          $('*[data-href="'+setup.url+'"]').click(function(){  
+            var url = $(this).attr('data-href');         
+            history.pushState({ url: url }, '', url);  //jeste men druhej parametr (titulek stranky)
+            callbcks[url] = setup.callback;
+            setup.callback();
+            return false;
+          });  
+        }
+    })();          
+    
+    /*PagesSwitcher.registrate({ url: '#prvni', callback: function(){
+      console.log('prvni')
+    } });
+    PagesSwitcher.registrate({ url: '#druhy', callback: function(){
+      console.log('druhy')
+    } });  
+    PagesSwitcher.registrate({ url: '#treti', callback: function(){
+      console.log('treti')
+    } });*/
+                                                       
+                                                    
+    var Controller = new (function(){
+        var PagesSwitcher = new (function(){
+            var self = this;
+            var callbcks = {};
+            init();
+            
+            function init(){
+                window.onpopstate = function(){      
+                    if(history.state)
+                    callbcks[history.state.url]();
+                }
+            }
+            
+            this.action = function(setup){
+                $('*[data-href="'+setup.url+'"]').on(setup.onEvent, function(){                                            //{
+                    var url = $(this).attr('data-href');                                                                   //   onEvent: 'click',
+                    history.pushState({ url: url }, '', url);  //jeste men druhej parametr (titulek stranky)               //   url: '#home',
+                    callbcks[url] = function(){                                                                            //   getData: Model.getData, 
+                        setup.callback();                                                                                  //   view: 'views/home.html'
+                        render(setup.getData, setup.view, setup.target);                                                   //   callback: function(){ co chci jeste udelat pri kluku na odkaz (render se vola automaticky) }
+                    }                                                                                                      //   target: $('#box')
+                    setup.callback();                                                                                      //}
+                    render(setup.getData, setup.view, setup.target);                                                        
+                    return false;                                                                                          
+                });                                                                                                        
+            }                                                                                                              
+        })();
+    
+        function render(getData, view, target){
+            $.get(view, function(content){         
+                var tmpl = content;
+                getData(function(data){
+                    var html = Mustache.to_html(tmpl, data);
+                    target.html(html); 
+                });
+            });    
+        }
+    
+        return {
+                action: PagesSwitcher.action    
+        };  
+    })();
+                                                                      
+    
+    var Model = (function(){
+        
+    })();     
+         
+         
+         /////////// poslouchej!
+         //melo by se spis nekde mimo udelat neco, co napoji na vsechny <a href=...> click nebo neco a v href budou mit #controller#metoda  a podle toho se 
+         //dynamicky najde prislusnej controller a jeho metoda
+    Controller.action({                            
+        onEvent: 'click',         
+        url: '#home',             
+        getData: function(callback){     //callback fci je potreba predat json data, ktery se nahakujou na sablonu
+            $.getJSON('data.json', function(data) {    
+                callback(data)
+            });
+        },   
+        view: 'view.html',   
+        callback: function(){ console.log('jeste neco') },      //co se stane po kliknuti 
+        target: $('#cil')                                   
+    });
+                      
+                                                  
+    /*$.get('view.html', function(tmpl){                                       
+        $.getJSON('data.json', function(data) {                              
+            var html = Mustache.to_html(tmpl, data);                         
+            $('#cil').html(html);                                            
+        });           
+    });*/                           
+});                   
+
+
+  
+  
+</script>
+</head>
+<body>
+  <script type="text/template" id="tmpl">   
+    <strong>{{name}}</strong>
+  </script>
+
+  <a data-href="#home" href="#">home</a>
+  <a data-href="#prvni" href="#">prv</a>
+  <a data-href="#druhy" href="#">druh</a>  
+  <a data-href="#treti" href="#">tri</a>    
+  <a data-href="#prvni" href="#">prv2</a>
+
+  <p id="cil">
+  </p>
+</body>
+</html>
